@@ -1,4 +1,4 @@
-"""Tests for the Appointment Booking API. Run: pytest -v"""
+# test ทั้งหมด รัน: pytest -v
 import time
 
 import pytest
@@ -12,7 +12,7 @@ client = TestClient(app)
 
 @pytest.fixture(autouse=True)
 def reset_state():
-    """Fresh data store for every test."""
+    # ล้างข้อมูลก่อนทุก test จะได้ไม่ปนกัน
     main.seed_users()
     main.BOOKINGS.clear()
     main.TOKENS.clear()
@@ -62,14 +62,14 @@ def test_invalid_token_rejected():
 
 def test_expired_token_rejected():
     t = token_of("alice", "alice123")
-    main.TOKENS[t]["expires_at"] = time.time() - 1  # simulate expiry
+    main.TOKENS[t]["expires_at"] = time.time() - 1  # หลอกว่าหมดอายุแล้ว
     assert client.get("/bookings", headers=auth(t)).status_code == 401
 
 
 def test_lockout_after_failed_logins():
     for _ in range(main.MAX_FAILED_LOGINS):
         assert login("alice", "wrong").status_code == 401
-    # locked now - even the CORRECT password is refused
+    # โดนล็อกแล้ว ใส่รหัสถูกก็ไม่ให้เข้า
     assert login("alice", "alice123").status_code == 429
 
 
@@ -77,7 +77,7 @@ def test_successful_login_resets_failed_count():
     for _ in range(main.MAX_FAILED_LOGINS - 1):
         login("alice", "wrong")
     assert login("alice", "alice123").status_code == 200
-    # counter reset - more wrong attempts start from zero, not locked yet
+    # login ผ่านแล้ว counter ต้อง reset
     assert login("alice", "wrong").status_code == 401
     assert login("alice", "alice123").status_code == 200
 
@@ -107,7 +107,7 @@ def test_double_booking_rejected():
     t_alice = token_of("alice", "alice123")
     t_bob = token_of("bob", "bob123")
     assert client.post("/bookings", json={"slot": "10am-11am"}, headers=auth(t_alice)).status_code == 201
-    # same slot (any case) is taken -> 409 Conflict
+    # slot เดิมโดนจองแล้ว ต้อง 409
     assert client.post("/bookings", json={"slot": "10AM-11AM"}, headers=auth(t_bob)).status_code == 409
 
 
