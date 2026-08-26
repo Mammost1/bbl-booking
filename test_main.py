@@ -1,4 +1,6 @@
 """Tests for the Appointment Booking API. Run: pytest -v"""
+import time
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -14,12 +16,17 @@ def reset_state():
     main.seed_users()
     main.BOOKINGS.clear()
     main.TOKENS.clear()
+    main.FAILED_LOGINS.clear()
     main._next_booking_id = 1
     yield
 
 
 def login(username, password):
     return client.post("/login", json={"username": username, "password": password})
+
+
+def token_of(username, password):
+    return login(username, password).json()["token"]
 
 
 def auth(token):
@@ -53,26 +60,62 @@ def test_invalid_token_rejected():
     assert client.get("/bookings", headers=auth("fake-token")).status_code == 401
 
 
+def test_expired_token_rejected():
+    t = token_of("alice", "alice123")
+    main.TOKENS[t]["expires_at"] = time.time() - 1  # simulate expiry
+    assert client.get("/bookings", headers=auth(t)).status_code == 401
+
+
+def test_lockout_after_failed_logins():
+    for _ in range(main.MAX_FAILED_LOGINS):
+        assert login("alice", "wrong").status_code == 401
+    # locked now - even the CORRECT password is refused
+    assert login("alice", "alice123").status_code == 429
+
+
+def test_successful_login_resets_failed_count():
+    for _ in range(main.MAX_FAILED_LOGINS - 1):
+        login("alice", "wrong")
+    assert login("alice", "alice123").status_code == 200
+    # counter reset - more wrong attempts start from zero, not locked yet
+    assert login("alice", "wrong").status_code == 401
+    assert login("alice", "alice123").status_code == 200
+
+
+def test_passwords_not_stored_in_plaintext():
+    stored = main.USERS["alice"]
+    assert b"alice123" not in stored["password_hash"]
+    assert stored["password_hash"] != "alice123"
+
+
 # ---------- Booking ----------
 
 def test_create_booking():
-    token = login("alice", "alice123").json()["token"]
-    res = client.post("/bookings", json={"slot": "10am-11am"}, headers=auth(token))
+    t = token_of("alice", "alice123")
+    res = client.post("/bookings", json={"slot": "10am-11am"}, headers=auth(t))
     assert res.status_code == 201
     assert res.json() == {"id": 1, "username": "alice", "slot": "10am-11am"}
 
 
 def test_empty_slot_rejected():
-    token = login("alice", "alice123").json()["token"]
-    res = client.post("/bookings", json={"slot": "  "}, headers=auth(token))
+    t = token_of("alice", "alice123")
+    res = client.post("/bookings", json={"slot": "  "}, headers=auth(t))
     assert res.status_code == 422
+
+
+def test_double_booking_rejected():
+    t_alice = token_of("alice", "alice123")
+    t_bob = token_of("bob", "bob123")
+    assert client.post("/bookings", json={"slot": "10am-11am"}, headers=auth(t_alice)).status_code == 201
+    # same slot (any case) is taken -> 409 Conflict
+    assert client.post("/bookings", json={"slot": "10AM-11AM"}, headers=auth(t_bob)).status_code == 409
 
 
 # ---------- Authorization ----------
 
 def test_user_sees_only_own_bookings():
-    t_alice = login("alice", "alice123").json()["token"]
-    t_bob = login("bob", "bob123").json()["token"]
+    t_alice = token_of("alice", "alice123")
+    t_bob = token_of("bob", "bob123")
     client.post("/bookings", json={"slot": "9am-10am"}, headers=auth(t_alice))
     client.post("/bookings", json={"slot": "1pm-2pm"}, headers=auth(t_bob))
 
@@ -81,8 +124,8 @@ def test_user_sees_only_own_bookings():
 
 
 def test_admin_sees_all_bookings():
-    t_alice = login("alice", "alice123").json()["token"]
-    t_admin = login("admin", "admin123").json()["token"]
+    t_alice = token_of("alice", "alice123")
+    t_admin = token_of("admin", "admin123")
     client.post("/bookings", json={"slot": "9am-10am"}, headers=auth(t_alice))
 
     seen = client.get("/bookings", headers=auth(t_admin)).json()
@@ -91,15 +134,15 @@ def test_admin_sees_all_bookings():
 
 
 def test_user_cannot_delete_others_booking():
-    t_alice = login("alice", "alice123").json()["token"]
-    t_bob = login("bob", "bob123").json()["token"]
+    t_alice = token_of("alice", "alice123")
+    t_bob = token_of("bob", "bob123")
     bid = client.post("/bookings", json={"slot": "9am-10am"}, headers=auth(t_alice)).json()["id"]
 
     assert client.delete(f"/bookings/{bid}", headers=auth(t_bob)).status_code == 403
 
 
 def test_user_deletes_own_booking():
-    t = login("alice", "alice123").json()["token"]
+    t = token_of("alice", "alice123")
     bid = client.post("/bookings", json={"slot": "9am-10am"}, headers=auth(t)).json()["id"]
 
     assert client.delete(f"/bookings/{bid}", headers=auth(t)).status_code == 204
@@ -107,13 +150,13 @@ def test_user_deletes_own_booking():
 
 
 def test_admin_can_delete_any_booking():
-    t_alice = login("alice", "alice123").json()["token"]
-    t_admin = login("admin", "admin123").json()["token"]
+    t_alice = token_of("alice", "alice123")
+    t_admin = token_of("admin", "admin123")
     bid = client.post("/bookings", json={"slot": "9am-10am"}, headers=auth(t_alice)).json()["id"]
 
     assert client.delete(f"/bookings/{bid}", headers=auth(t_admin)).status_code == 204
 
 
 def test_delete_missing_booking_404():
-    t = login("alice", "alice123").json()["token"]
+    t = token_of("alice", "alice123")
     assert client.delete("/bookings/999", headers=auth(t)).status_code == 404

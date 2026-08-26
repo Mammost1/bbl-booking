@@ -24,6 +24,7 @@
   th, td { text-align: left; padding: .5rem; border-bottom: 1px solid #eee;
            font-size: .9rem; }
   .muted { color: #888; font-size: .85rem; }
+  .error { color: #c0392b; font-size: .85rem; min-height: 1.2em; margin-top: .5rem; }
 </style>
 </head>
 <body>
@@ -37,6 +38,7 @@
       <input id="slot" placeholder="e.g. 10am-11am" required>
       <button type="submit">Book</button>
     </form>
+    <div class="error" id="book-error"></div>
   </div>
   <div class="card">
     <table>
@@ -95,11 +97,18 @@ async function loadBookings() {
 document.getElementById("book-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const slot = document.getElementById("slot").value;
-  await fetch("/bookings", {
+  const errorEl = document.getElementById("book-error");
+  errorEl.textContent = "";
+  const res = await fetch("/bookings", {
     method: "POST",
     headers: { ...authHeaders, "Content-Type": "application/json" },
     body: JSON.stringify({ slot }),
   });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    errorEl.textContent = data.detail || "Booking failed";
+    return;
+  }
   document.getElementById("slot").value = "";
   loadBookings();
 });
