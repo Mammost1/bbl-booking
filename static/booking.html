@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>My Bookings - Appointment Booking</title>
+<style>
+  body { font-family: system-ui, sans-serif; background: #f4f6f8; margin: 0; }
+  .wrap { max-width: 640px; margin: 2rem auto; padding: 0 1rem; }
+  .card { background: #fff; padding: 1.5rem; border-radius: 10px;
+          box-shadow: 0 2px 10px rgba(0,0,0,.08); margin-bottom: 1rem; }
+  h1 { font-size: 1.3rem; margin: 0; }
+  header { display: flex; justify-content: space-between; align-items: center;
+           margin-bottom: 1rem; }
+  .badge { background: #e0e7ff; color: #3730a3; padding: .15rem .5rem;
+           border-radius: 999px; font-size: .75rem; margin-left: .4rem; }
+  form { display: flex; gap: .5rem; }
+  input { flex: 1; padding: .55rem; border: 1px solid #ccc; border-radius: 6px; }
+  button { padding: .55rem 1rem; border: 0; border-radius: 6px; background: #1a56db;
+           color: #fff; cursor: pointer; }
+  button:hover { background: #1746b0; }
+  button.link { background: none; color: #c0392b; padding: .2rem; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: .5rem; border-bottom: 1px solid #eee;
+           font-size: .9rem; }
+  .muted { color: #888; font-size: .85rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <header>
+      <h1>Bookings <span class="badge" id="role"></span></h1>
+      <button id="logout">Log out</button>
+    </header>
+    <form id="book-form">
+      <input id="slot" placeholder="e.g. 10am-11am" required>
+      <button type="submit">Book</button>
+    </form>
+  </div>
+  <div class="card">
+    <table>
+      <thead><tr id="head-row"><th>ID</th><th>Slot</th><th></th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <div class="muted" id="empty" hidden>No bookings yet.</div>
+  </div>
+</div>
+<script>
+const token = localStorage.getItem("token");
+const isAdmin = localStorage.getItem("is_admin") === "true";
+const me = localStorage.getItem("username");
+if (!token) location.href = "/";
+
+document.getElementById("role").textContent = isAdmin ? me + " (admin)" : me;
+if (isAdmin) {
+  const th = document.createElement("th");
+  th.textContent = "User";
+  document.getElementById("head-row").insertBefore(th, document.getElementById("head-row").children[1]);
+}
+
+const authHeaders = { "Authorization": "Bearer " + token };
+
+async function loadBookings() {
+  const res = await fetch("/bookings", { headers: authHeaders });
+  if (res.status === 401) { localStorage.clear(); location.href = "/"; return; }
+  const bookings = await res.json();
+  const tbody = document.getElementById("rows");
+  tbody.innerHTML = "";
+  document.getElementById("empty").hidden = bookings.length > 0;
+  for (const b of bookings) {
+    const tr = document.createElement("tr");
+    const cells = [b.id, ...(isAdmin ? [b.username] : []), b.slot];
+    for (const c of cells) {
+      const td = document.createElement("td");
+      td.textContent = c;
+      tr.appendChild(td);
+    }
+    const td = document.createElement("td");
+    if (b.username === me || isAdmin) {
+      const del = document.createElement("button");
+      del.className = "link";
+      del.textContent = "Delete";
+      del.onclick = async () => {
+        await fetch("/bookings/" + b.id, { method: "DELETE", headers: authHeaders });
+        loadBookings();
+      };
+      td.appendChild(del);
+    }
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+  }
+}
+
+document.getElementById("book-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const slot = document.getElementById("slot").value;
+  await fetch("/bookings", {
+    method: "POST",
+    headers: { ...authHeaders, "Content-Type": "application/json" },
+    body: JSON.stringify({ slot }),
+  });
+  document.getElementById("slot").value = "";
+  loadBookings();
+});
+
+document.getElementById("logout").onclick = () => {
+  localStorage.clear();
+  location.href = "/";
+};
+
+loadBookings();
+</script>
+</body>
+</html>
