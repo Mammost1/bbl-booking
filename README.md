@@ -53,12 +53,23 @@ Interactive API docs: **http://127.0.0.1:8000/docs**
 pytest -v
 ```
 
-13 tests cover login success/failure, missing/invalid tokens (401),
-per-user visibility, admin visibility, and forbidden deletes (403).
+18 tests cover login success/failure, missing/invalid/expired tokens (401),
+account lockout (429), double-booking (409), per-user visibility,
+admin visibility, and forbidden deletes (403).
+
+## Security
+
+- Passwords hashed with **PBKDF2-HMAC-SHA256 + per-user random salt**
+  (200,000 iterations) — never stored in plaintext.
+- Constant-time hash comparison (`hmac.compare_digest`) against timing attacks.
+- Session tokens are random 256-bit values with a **30-minute expiry**.
+- **Account lockout**: 5 failed logins lock the account for 15 minutes (429).
+- Identical error for wrong username / wrong password (no user enumeration).
+- Double-booking a taken slot is rejected with **409 Conflict**.
 
 ## Notes / Trade-offs
 
 - Data lives in Python dicts (per the assignment) — restart clears everything.
-- Passwords are stored as SHA-256 hashes, never plaintext. Real systems should
-  use a salted, slow hash (bcrypt/argon2) and JWT or server sessions with expiry.
+- No JWT by design: an opaque token + server-side session table is simpler and
+  revocable; JWT (signed with a secret/private key) fits multi-service setups.
 - Frontend is served by the same FastAPI app to avoid CORS configuration.
