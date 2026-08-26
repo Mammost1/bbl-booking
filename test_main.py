@@ -17,7 +17,9 @@ def reset_state():
     main.seed_users()
     main.BOOKINGS.clear()
     main.FAILED_LOGINS.clear()
+    main.LOGIN_ATTEMPTS_BY_IP.clear()
     main._next_booking_id = 1
+    client.cookies.clear()  # cookie ค้างจาก test ก่อนหน้าทำให้ 401 กลายเป็น 200 ได้
     yield
 
 
@@ -168,3 +170,40 @@ def test_admin_can_delete_any_booking():
 def test_delete_missing_booking_404():
     t = token_of("alice", "alice123")
     assert client.delete("/bookings/999", headers=auth(t)).status_code == 404
+
+
+# ---------- Hardening ----------
+
+def test_security_headers_present():
+    res = client.get("/")
+    assert res.headers["X-Frame-Options"] == "DENY"
+    assert res.headers["X-Content-Type-Options"] == "nosniff"
+    assert "Content-Security-Policy" in res.headers
+
+
+def test_login_sets_httponly_cookie():
+    res = login("alice", "alice123")
+    set_cookie = res.headers["set-cookie"].lower()
+    assert "access_token=" in set_cookie
+    assert "httponly" in set_cookie
+    assert "samesite=strict" in set_cookie
+
+
+def test_cookie_alone_authenticates():
+    login("alice", "alice123")  # TestClient เก็บ cookie ให้เอง
+    # ไม่ส่ง Authorization header เลย ใช้ cookie ล้วนๆ
+    assert client.get("/bookings").status_code == 200
+
+
+def test_logout_clears_cookie():
+    login("alice", "alice123")
+    client.post("/logout")
+    assert client.get("/bookings").status_code == 401
+
+
+def test_ip_rate_limit():
+    # ยิง /login รัวๆ สลับ username ไปเรื่อยๆ (หนี lockout ราย user)
+    for i in range(main.LOGIN_RATE_LIMIT):
+        login(f"spray{i}", "x")
+    # ครั้งถัดไปโดน 429 เพราะ IP เดิมยิงเกินโควต้า
+    assert login("spray-final", "x").status_code == 429

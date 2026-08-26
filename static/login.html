@@ -52,7 +52,7 @@ document.getElementById("login-form").addEventListener("submit", async (e) => {
     return;
   }
   const data = await res.json();
-  localStorage.setItem("token", data.token);
+  // token จริงอยู่ใน HttpOnly cookie แล้ว JS แตะไม่ได้ - เก็บแค่ข้อมูลโชว์หน้าจอ
   localStorage.setItem("username", data.username);
   localStorage.setItem("is_admin", data.is_admin);
   location.href = "/static/booking.html";

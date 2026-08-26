@@ -49,10 +49,9 @@
   </div>
 </div>
 <script>
-const token = localStorage.getItem("token");
 const isAdmin = localStorage.getItem("is_admin") === "true";
 const me = localStorage.getItem("username");
-if (!token) location.href = "/";
+if (!me) location.href = "/";
 
 document.getElementById("role").textContent = isAdmin ? me + " (admin)" : me;
 if (isAdmin) {
@@ -61,10 +60,8 @@ if (isAdmin) {
   document.getElementById("head-row").insertBefore(th, document.getElementById("head-row").children[1]);
 }
 
-const authHeaders = { "Authorization": "Bearer " + token };
-
 async function loadBookings() {
-  const res = await fetch("/bookings", { headers: authHeaders });
+  const res = await fetch("/bookings");
   if (res.status === 401) { localStorage.clear(); location.href = "/"; return; }
   const bookings = await res.json();
   const tbody = document.getElementById("rows");
@@ -84,7 +81,7 @@ async function loadBookings() {
       del.className = "link";
       del.textContent = "Delete";
       del.onclick = async () => {
-        await fetch("/bookings/" + b.id, { method: "DELETE", headers: authHeaders });
+        await fetch("/bookings/" + b.id, { method: "DELETE" });
         loadBookings();
       };
       td.appendChild(del);
@@ -101,7 +98,7 @@ document.getElementById("book-form").addEventListener("submit", async (e) => {
   errorEl.textContent = "";
   const res = await fetch("/bookings", {
     method: "POST",
-    headers: { ...authHeaders, "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ slot }),
   });
   if (!res.ok) {
@@ -113,7 +110,8 @@ document.getElementById("book-form").addEventListener("submit", async (e) => {
   loadBookings();
 });
 
-document.getElementById("logout").onclick = () => {
+document.getElementById("logout").onclick = async () => {
+  await fetch("/logout", { method: "POST" });  // ให้ server ลบ cookie
   localStorage.clear();
   location.href = "/";
 };
