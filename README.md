@@ -53,7 +53,7 @@ Interactive API docs: **http://127.0.0.1:8000/docs**
 pytest -v
 ```
 
-18 tests cover login success/failure, missing/invalid/expired tokens (401),
+19 tests cover login success/failure, missing/invalid/expired/tampered tokens (401),
 account lockout (429), double-booking (409), per-user visibility,
 admin visibility, and forbidden deletes (403).
 
@@ -62,7 +62,8 @@ admin visibility, and forbidden deletes (403).
 - Passwords hashed with **PBKDF2-HMAC-SHA256 + per-user random salt**
   (200,000 iterations) — never stored in plaintext.
 - Constant-time hash comparison (`hmac.compare_digest`) against timing attacks.
-- Session tokens are random 256-bit values with a **30-minute expiry**.
+- **JWT (HS256)** access tokens signed with a server secret key, **30-minute expiry** —
+  tamper-proof and stateless (no server-side session table).
 - **Account lockout**: 5 failed logins lock the account for 15 minutes (429).
 - Identical error for wrong username / wrong password (no user enumeration).
 - Double-booking a taken slot is rejected with **409 Conflict**.
@@ -70,6 +71,7 @@ admin visibility, and forbidden deletes (403).
 ## Notes / Trade-offs
 
 - Data lives in Python dicts (per the assignment) — restart clears everything.
-- No JWT by design: an opaque token + server-side session table is simpler and
-  revocable; JWT (signed with a secret/private key) fits multi-service setups.
+- JWT signing key is generated at startup (in-memory app, so old tokens dying on
+  restart is fine). Trade-off: a JWT can't be revoked before it expires —
+  a real system would add a refresh-token flow or a revocation list.
 - Frontend is served by the same FastAPI app to avoid CORS configuration.

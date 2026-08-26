@@ -5,6 +5,8 @@ import hmac
 import secrets
 import time
 
+import jwt
+
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -14,13 +16,15 @@ app = FastAPI(title="Appointment Booking API")
 
 PBKDF2_ITERATIONS = 200_000
 TOKEN_TTL_SECONDS = 30 * 60       # token อยู่ได้ 30 นาที
+# key ไว้เซ็น JWT - สุ่มใหม่ทุกครั้งที่ start (restart แล้ว token เก่าใช้ไม่ได้ ซึ่งโอเคเพราะ data ก็หายอยู่แล้ว)
+JWT_SECRET = secrets.token_hex(32)
+JWT_ALGO = "HS256"
 MAX_FAILED_LOGINS = 5
 LOCKOUT_SECONDS = 15 * 60         # ล็อก 15 นาทีถ้าใส่รหัสผิดเกิน
 
 # เก็บใน memory ตามโจทย์ restart แล้วหายหมด
 USERS = {}          # username -> {salt, password_hash, is_admin}
 BOOKINGS = []       # {id, username, slot}
-TOKENS = {}         # token -> {username, expires_at}
 FAILED_LOGINS = {}  # นับ login พลาด กันโดน brute force
 _next_booking_id = 1
 
@@ -79,8 +83,12 @@ def login(body: LoginRequest):
         raise HTTPException(401, "Invalid username or password")
 
     FAILED_LOGINS.pop(body.username, None)
-    token = secrets.token_hex(32)
-    TOKENS[token] = {"username": body.username, "expires_at": now + TOKEN_TTL_SECONDS}
+    # ออก JWT: ข้อมูล user + วันหมดอายุ อยู่ใน token เลย เซ็นด้วย secret กันปลอม
+    token = jwt.encode(
+        {"sub": body.username, "is_admin": user["is_admin"], "exp": int(now + TOKEN_TTL_SECONDS)},
+        JWT_SECRET,
+        algorithm=JWT_ALGO,
+    )
     return {"token": token, "username": body.username, "is_admin": user["is_admin"]}
 
 
@@ -89,14 +97,14 @@ def get_current_user(authorization: str = Header(default="")) -> dict:
     if not authorization.startswith("Bearer "):
         raise HTTPException(401, "Missing bearer token")
     token = authorization.removeprefix("Bearer ")
-    session = TOKENS.get(token)
-    if session is None:
-        raise HTTPException(401, "Invalid token")
-    if session["expires_at"] < time.time():
-        TOKENS.pop(token, None)  # หมดอายุแล้ว เคลียร์ทิ้ง
+    try:
+        # ตรวจลายเซ็น + วันหมดอายุในตัว ไม่ต้องเก็บ session ฝั่ง server
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGO])
+    except jwt.ExpiredSignatureError:
         raise HTTPException(401, "Token expired, please log in again")
-    user = USERS[session["username"]]
-    return {"username": session["username"], "is_admin": user["is_admin"]}
+    except jwt.InvalidTokenError:
+        raise HTTPException(401, "Invalid token")
+    return {"username": payload["sub"], "is_admin": payload["is_admin"]}
 
 
 @app.post("/bookings", status_code=201)

@@ -1,6 +1,7 @@
 # test ทั้งหมด รัน: pytest -v
 import time
 
+import jwt
 import pytest
 from fastapi.testclient import TestClient
 
@@ -15,7 +16,6 @@ def reset_state():
     # ล้างข้อมูลก่อนทุก test จะได้ไม่ปนกัน
     main.seed_users()
     main.BOOKINGS.clear()
-    main.TOKENS.clear()
     main.FAILED_LOGINS.clear()
     main._next_booking_id = 1
     yield
@@ -61,8 +61,16 @@ def test_invalid_token_rejected():
 
 
 def test_expired_token_rejected():
-    t = token_of("alice", "alice123")
-    main.TOKENS[t]["expires_at"] = time.time() - 1  # หลอกว่าหมดอายุแล้ว
+    # สร้าง token ที่หมดอายุไปแล้วด้วย key จริง
+    t = jwt.encode({"sub": "alice", "is_admin": False, "exp": int(time.time()) - 1},
+                   main.JWT_SECRET, algorithm=main.JWT_ALGO)
+    assert client.get("/bookings", headers=auth(t)).status_code == 401
+
+
+def test_tampered_token_rejected():
+    # token ที่เซ็นด้วย key ปลอม ต้องโดนปัด
+    t = jwt.encode({"sub": "admin", "is_admin": True, "exp": int(time.time()) + 999},
+                   "wrong-secret", algorithm=main.JWT_ALGO)
     assert client.get("/bookings", headers=auth(t)).status_code == 401
 
 
