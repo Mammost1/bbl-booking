@@ -1,5 +1,3 @@
-# BBL assessment - appointment booking API
-# run: uvicorn main:app --reload  ->  http://127.0.0.1:8000
 import hashlib
 import hmac
 import secrets
@@ -39,7 +37,6 @@ class BookingRequest(BaseModel):
 
 
 def hash_password(password: str, salt: bytes) -> bytes:
-    # pbkdf2 ช้ากว่า sha256 เปล่าๆ เยอะ = เดารหัสยากขึ้น, salt กัน rainbow table
     return hashlib.pbkdf2_hmac("sha256", password.encode(), salt, PBKDF2_ITERATIONS)
 
 
